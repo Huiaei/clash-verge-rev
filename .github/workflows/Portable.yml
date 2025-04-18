@@ -298,10 +298,13 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{steps.build.outputs.appVersion}}
-          name: "Clash Verge Rev v${{steps.build.outputs.appVersion}}"
+          # name: "Clash Verge Rev v${{steps.build.outputs.appVersion}}"
+          name: "Clash Verge Rev"
           body: "More new features are now supported."
           token: ${{ secrets.GITHUB_TOKEN }}
-          files: src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*setup*
+          files: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*setup*
+            *_portable.zip
 
 
 
