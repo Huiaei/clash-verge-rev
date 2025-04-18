@@ -293,15 +293,22 @@ jobs:
         run: pnpm portable-fixed-webview2 ${{ matrix.target }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          
+
+      - name: list file tree
+        run: tree /a /f "D:/a/clash-verge-rev/clash-verge-rev/"
+      
       - name: Upload Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{steps.build.outputs.appVersion}}
-          name: "Clash Verge Rev v${{steps.build.outputs.appVersion}}"
+          # tag_name: v${{steps.build.outputs.appVersion}}
+          tag_name: latest
+          # name: "Clash Verge Rev v${{steps.build.outputs.appVersion}}"
+          name: "Clash Verge Rev"
           body: "More new features are now supported."
           token: ${{ secrets.GITHUB_TOKEN }}
-          files: src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*setup*
+          files: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*setup*
+            *_portable.zip
 
 
 
