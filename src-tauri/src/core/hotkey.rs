@@ -153,35 +153,76 @@ impl Hotkey {
                         "=== Hotkey Dashboard Window Operation Start ==="
                     );
 
-                    // 使用 spawn_blocking 来确保在正确的线程上执行
-                    AsyncHandler::spawn_blocking(|| {
-                        logging!(debug, Type::Hotkey, "Toggle dashboard window visibility");
-
-                        // 检查窗口是否存在
-                        if let Some(window) = handle::Handle::global().get_window() {
-                            // 如果窗口可见，则隐藏它
-                            if window.is_visible().unwrap_or(false) {
-                                logging!(info, Type::Window, "Window is visible, hiding it");
-                                let _ = window.hide();
-                            } else {
-                                // 如果窗口不可见，则显示它
-                                logging!(info, Type::Window, "Window is hidden, showing it");
-                                if window.is_minimized().unwrap_or(false) {
-                                    let _ = window.unminimize();
-                                }
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                            }
-                        } else {
-                            // 如果窗口不存在，创建一个新窗口
+                    // 检查是否在轻量模式下，如果是，需要同步处理
+                    if crate::module::lightweight::is_in_lightweight_mode() {
+                        logging!(
+                            info,
+                            Type::Hotkey,
+                            true,
+                            "In lightweight mode, calling open_or_close_dashboard directly"
+                        );
+                        crate::feat::open_or_close_dashboard();
+                    } else {
+                        AsyncHandler::spawn(move || async move {
                             logging!(
-                                info,
-                                Type::Window,
-                                "Window does not exist, creating a new one"
+                                debug,
+                                Type::Hotkey,
+                                true,
+                                "Toggle dashboard window visibility (async)"
                             );
-                            resolve::create_window(true);
-                        }
-                    });
+
+                            // 检查窗口是否存在
+                            if let Some(window) = handle::Handle::global().get_window() {
+                                // 如果窗口可见，则隐藏
+                                match window.is_visible() {
+                                    Ok(visible) => {
+                                        if visible {
+                                            logging!(
+                                                info,
+                                                Type::Window,
+                                                true,
+                                                "Window is visible, hiding it"
+                                            );
+                                            let _ = window.hide();
+                                        } else {
+                                            // 如果窗口不可见，则显示
+                                            logging!(
+                                                info,
+                                                Type::Window,
+                                                true,
+                                                "Window is hidden, showing it"
+                                            );
+                                            if window.is_minimized().unwrap_or(false) {
+                                                let _ = window.unminimize();
+                                            }
+                                            let _ = window.show();
+                                            let _ = window.set_focus();
+                                        }
+                                    }
+                                    Err(e) => {
+                                        logging!(
+                                            warn,
+                                            Type::Window,
+                                            true,
+                                            "Failed to check window visibility: {}",
+                                            e
+                                        );
+                                        let _ = window.show();
+                                        let _ = window.set_focus();
+                                    }
+                                }
+                            } else {
+                                // 如果窗口不存在，创建一个新窗口
+                                logging!(
+                                    info,
+                                    Type::Window,
+                                    true,
+                                    "Window does not exist, creating a new one"
+                                );
+                                resolve::create_window(true);
+                            }
+                        });
+                    }
 
                     logging!(
                         debug,
@@ -231,10 +272,11 @@ impl Hotkey {
 
                     if is_enable_global_hotkey {
                         f();
-                    } else if let Some(window) = app_handle.get_webview_window("main") {
+                    } else {
+                        use crate::utils::window_manager::WindowManager;
                         // 非轻量模式且未启用全局热键时，只在窗口可见且有焦点的情况下响应热键
-                        let is_visible = window.is_visible().unwrap_or(false);
-                        let is_focused = window.is_focused().unwrap_or(false);
+                        let is_visible = WindowManager::is_main_window_visible();
+                        let is_focused = WindowManager::is_main_window_focused();
 
                         if is_focused && is_visible {
                             f();
@@ -289,9 +331,9 @@ impl Hotkey {
             let func = iter.next();
             let key = iter.next();
 
-            if func.is_some() && key.is_some() {
-                let func = func.unwrap().trim();
-                let key = key.unwrap().trim();
+            if let (Some(func), Some(key)) = (func, key) {
+                let func = func.trim();
+                let key = key.trim();
                 map.insert(key, func);
             }
         });

@@ -10,8 +10,22 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 pub fn toggle_system_proxy() {
     let enable = Config::verge().draft().enable_system_proxy;
     let enable = enable.unwrap_or(false);
+    let auto_close_connection = Config::verge()
+        .data()
+        .auto_close_connection
+        .unwrap_or(false);
 
     AsyncHandler::spawn(move || async move {
+        // 如果当前系统代理即将关闭，且自动关闭连接设置为true，则关闭所有连接
+        if enable && auto_close_connection {
+            if let Err(err) = crate::module::mihomo::MihomoManager::global()
+                .close_all_connections()
+                .await
+            {
+                log::error!(target: "app", "Failed to close all connections: {}", err);
+            }
+        }
+
         match super::patch_verge(
             IVerge {
                 enable_system_proxy: Some(!enable),
@@ -29,19 +43,6 @@ pub fn toggle_system_proxy() {
 
 /// Toggle TUN mode on/off
 pub fn toggle_tun_mode(not_save_file: Option<bool>) {
-    // AsyncHandler::spawn(async {
-    //     logging!(
-    //         info,
-    //         Type::Service,
-    //         true,
-    //         "Toggle TUN mode need install service"
-    //     );
-    //     if is_service_available().await.is_err() {
-    //         logging_error!(Type::Service, true, install_service().await);
-    //     }
-    //     logging_error!(Type::Core, true, CoreManager::global().restart_core().await);
-    // });
-
     let enable = Config::verge().data().enable_tun_mode;
     let enable = enable.unwrap_or(false);
 

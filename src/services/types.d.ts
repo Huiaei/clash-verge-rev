@@ -207,6 +207,7 @@ interface IProfileOption {
   with_proxy?: boolean;
   self_proxy?: boolean;
   update_interval?: number;
+  timeout_seconds?: number;
   danger_accept_invalid_certs?: boolean;
   merge?: string;
   script?: string;
@@ -784,13 +785,14 @@ interface IVergeConfig {
   default_latency_test?: string;
   default_latency_timeout?: number;
   enable_builtin_enhanced?: boolean;
-  auto_log_clean?: 0 | 1 | 2 | 3;
+  auto_log_clean?: 0 | 1 | 2 | 3 | 4;
   proxy_layout_column?: number;
   test_list?: IVergeTestItem[];
   webdav_url?: string;
   webdav_username?: string;
   webdav_password?: string;
   home_cards?: Record<string, boolean>;
+  enable_hover_jump_navigator?: boolean;
 }
 
 interface IWebDavFile {
