@@ -90,7 +90,7 @@ export async function patchClashConfig(payload: Partial<IConfigData>) {
   return invoke<void>("patch_clash_config", { payload });
 }
 
-export async function patchClashMode(payload: String) {
+export async function patchClashMode(payload: string) {
   return invoke<void>("patch_clash_mode", { payload });
 }
 
@@ -137,7 +137,10 @@ export async function getProxyDelay(
 }
 
 export async function updateProxy(group: string, proxy: string) {
-  return await invoke<void>("update_proxy_choice", { group, proxy });
+  // const start = Date.now();
+  await invoke<void>("update_proxy_choice", { group, proxy });
+  // const duration = Date.now() - start;
+  // console.log(`[API] updateProxy 耗时: ${duration}ms`);
 }
 
 export async function getProxies(): Promise<{
@@ -245,7 +248,7 @@ export async function getProxyProviders() {
   const providers = response.providers as Record<string, IProxyProviderItem>;
 
   return Object.fromEntries(
-    Object.entries(providers).filter(([key, item]) => {
+    Object.entries(providers).filter(([, item]) => {
       const type = item.vehicleType.toLowerCase();
       return type === "http" || type === "file";
     }),
@@ -263,7 +266,7 @@ export async function getRuleProviders() {
   >;
 
   return Object.fromEntries(
-    Object.entries(providers).filter(([key, item]) => {
+    Object.entries(providers).filter(([, item]) => {
       const type = item.vehicleType.toLowerCase();
       return type === "http" || type === "file";
     }),
@@ -321,7 +324,7 @@ export async function getMemoryData() {
     usage_percent?: number;
     last_updated?: number;
   }>("get_memory_data");
-  console.log("[Memory][Service] get_memory_data 返回结果:", result);
+  // console.debug("[Memory][Service] get_memory_data 返回结果:", result);
   return result;
 }
 
@@ -330,10 +333,10 @@ export async function getFormattedTrafficData() {
   const result = await invoke<IFormattedTrafficData>(
     "get_formatted_traffic_data",
   );
-  console.log(
-    "[Traffic][Service] get_formatted_traffic_data 返回结果:",
-    result,
-  );
+  // console.debug(
+  //   "[Traffic][Service] get_formatted_traffic_data 返回结果:",
+  //   result,
+  // );
   return result;
 }
 
@@ -342,7 +345,7 @@ export async function getFormattedMemoryData() {
   const result = await invoke<IFormattedMemoryData>(
     "get_formatted_memory_data",
   );
-  console.log("[Memory][Service] get_formatted_memory_data 返回结果:", result);
+  // console.debug("[Memory][Service] get_formatted_memory_data 返回结果:", result);
   return result;
 }
 
@@ -351,10 +354,10 @@ export async function getSystemMonitorOverview() {
   const result = await invoke<ISystemMonitorOverview>(
     "get_system_monitor_overview",
   );
-  console.log(
-    "[Monitor][Service] get_system_monitor_overview 返回结果:",
-    result,
-  );
+  // console.debug(
+  //   "[Monitor][Service] get_system_monitor_overview 返回结果:",
+  //   result,
+  // );
   return result;
 }
 
@@ -377,7 +380,7 @@ export async function getSystemMonitorOverviewSafe() {
       // console.warn("[Monitor][Service] 数据验证失败，使用清理后的数据");
       return systemMonitorValidator.sanitize(result);
     }
-  } catch (error) {
+  } catch {
     // console.error("[Monitor][Service] API调用失败:", error);
     // 返回安全的默认值
     const { systemMonitorValidator } = await import("@/utils/data-validator");
@@ -410,6 +413,22 @@ export async function isDebugEnabled() {
 
 export async function gc() {
   return invoke<void>("clash_gc");
+}
+
+export async function getClashLogs() {
+  return invoke<any>("get_clash_logs");
+}
+
+export async function startLogsMonitoring(level?: string) {
+  return invoke<void>("start_logs_monitoring", { level });
+}
+
+export async function stopLogsMonitoring() {
+  return invoke<void>("stop_logs_monitoring");
+}
+
+export async function clearLogs() {
+  return invoke<void>("clear_logs");
 }
 
 export async function getVergeConfig() {
@@ -512,12 +531,9 @@ export async function cmdGetProxyDelay(
 ) {
   // 确保URL不为空
   const testUrl = url || "https://cp.cloudflare.com/generate_204";
-  console.log(
-    `[API] 调用延迟测试API，代理: ${name}, 超时: ${timeout}ms, URL: ${testUrl}`,
-  );
 
   try {
-    name = encodeURIComponent(name);
+    // 不再在前端编码代理名称，由后端统一处理编码
     const result = await invoke<{ delay: number }>(
       "clash_api_get_proxy_delay",
       {
@@ -529,20 +545,12 @@ export async function cmdGetProxyDelay(
 
     // 验证返回结果中是否有delay字段，并且值是一个有效的数字
     if (result && typeof result.delay === "number") {
-      console.log(
-        `[API] 延迟测试API调用成功，代理: ${name}, 延迟: ${result.delay}ms`,
-      );
       return result;
     } else {
-      console.error(
-        `[API] 延迟测试API返回无效结果，代理: ${name}, 结果:`,
-        result,
-      );
       // 返回一个有效的结果对象，但标记为超时
       return { delay: 1e6 };
     }
-  } catch (error) {
-    console.error(`[API] 延迟测试API调用失败，代理: ${name}`, error);
+  } catch {
     // 返回一个有效的结果对象，但标记为错误
     return { delay: 1e6 };
   }
@@ -550,9 +558,11 @@ export async function cmdGetProxyDelay(
 
 /// 用于profile切换等场景
 export async function forceRefreshProxies() {
+  const start = Date.now();
   console.log("[API] 强制刷新代理缓存");
   const result = await invoke<any>("force_refresh_proxies");
-  console.log("[API] 代理缓存刷新完成");
+  const duration = Date.now() - start;
+  console.log(`[API] 代理缓存刷新完成，耗时: ${duration}ms`);
   return result;
 }
 
@@ -636,7 +646,7 @@ export async function restoreWebDavBackup(filename: string) {
 export async function saveWebdavConfig(
   url: string,
   username: string,
-  password: String,
+  password: string,
 ) {
   return invoke<void>("save_webdav_config", {
     url,

@@ -30,6 +30,8 @@ import { initGlobalLogService } from "@/services/global-log-service";
 import { invoke } from "@tauri-apps/api/core";
 import { showNotice } from "@/services/noticeService";
 import { NoticeManager } from "@/components/base/NoticeManager";
+import { useLocalStorage } from "foxact/use-local-storage";
+import { LogLevel } from "@/hooks/use-log-data";
 
 const appWindow = getCurrentWebviewWindow();
 export let portableFlag = false;
@@ -154,6 +156,7 @@ const Layout = () => {
   const { verge } = useVerge();
   const { clashInfo } = useClashInfo();
   const [enableLog] = useEnableLog();
+  const [logLevel] = useLocalStorage<LogLevel>("log:log-level", "info");
   const { language, start_page } = verge ?? {};
   const navigate = useNavigate();
   const location = useLocation();
@@ -183,10 +186,9 @@ const Layout = () => {
   // 初始化全局日志服务
   useEffect(() => {
     if (clashInfo) {
-      const { server = "", secret = "" } = clashInfo;
-      initGlobalLogService(server, secret, enableLog, "info");
+      initGlobalLogService(enableLog, logLevel);
     }
-  }, [clashInfo, enableLog]);
+  }, [clashInfo, enableLog, logLevel]);
 
   // 设置监听器
   useEffect(() => {
@@ -294,7 +296,7 @@ const Layout = () => {
         setTimeout(() => {
           try {
             initialOverlay.remove();
-          } catch (e) {
+          } catch {
             console.log("[Layout] 加载指示器已被移除");
           }
         }, 300);
@@ -400,7 +402,7 @@ const Layout = () => {
           hasEventTriggered = true;
           performInitialization();
         }
-      } catch (err) {
+      } catch {
         console.log("[Layout] 后端尚未就绪，等待启动完成事件");
       }
     };

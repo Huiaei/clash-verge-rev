@@ -1,4 +1,4 @@
-import { BaseDialog, DialogRef } from "@/components/base";
+import { BaseDialog, DialogRef, Switch } from "@/components/base";
 import { useClashInfo } from "@/hooks/use-clash";
 import { useVerge } from "@/hooks/use-verge";
 import { showNotice } from "@/services/noticeService";
@@ -12,7 +12,6 @@ import {
   ListItem,
   ListItemText,
   Snackbar,
-  Switch,
   TextField,
   Tooltip,
 } from "@mui/material";
@@ -92,6 +91,7 @@ export const ControllerViewer = forwardRef<DialogRef>((props, ref) => {
         setCopySuccess(type);
         setTimeout(() => setCopySuccess(null));
       } catch (err) {
+        console.warn("[ControllerViewer] copy to clipboard failed:", err);
         showNotice("error", t("Failed to copy"));
       }
     },

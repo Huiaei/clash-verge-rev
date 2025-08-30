@@ -1,9 +1,6 @@
 use crate::{core::handle, logging, utils::logging::Type};
 use tauri::{Manager, WebviewWindow, Wry};
 
-#[cfg(target_os = "macos")]
-use crate::AppHandleManager;
-
 use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
 use scopeguard;
@@ -283,7 +280,7 @@ impl WindowManager {
         #[cfg(target_os = "macos")]
         {
             logging!(info, Type::Window, true, "应用 macOS 特定的激活策略");
-            AppHandleManager::global().set_activation_policy_regular();
+            handle::Handle::global().set_activation_policy_regular();
         }
 
         #[cfg(target_os = "windows")]
@@ -364,8 +361,11 @@ impl WindowManager {
 
     /// 创建新窗口,防抖避免重复调用
     fn create_new_window() -> bool {
+        use crate::process::AsyncHandler;
         use crate::utils::resolve;
-        resolve::create_window(true)
+
+        // 使用 tokio runtime 阻塞调用 async 函数
+        AsyncHandler::block_on(resolve::window::create_window(true))
     }
 
     /// 获取详细的窗口状态信息

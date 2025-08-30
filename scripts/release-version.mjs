@@ -6,15 +6,19 @@
  *
  * <version> can be:
  *   - A full semver version (e.g., 1.2.3, v1.2.3, 1.2.3-beta, v1.2.3+build)
- *   - A tag: "alpha", "beta", "rc", or "autobuild"
+ *   - A tag: "alpha", "beta", "rc", "autobuild", "autobuild-latest", or "deploytest"
  *     - "alpha", "beta", "rc": Appends the tag to the current base version (e.g., 1.2.3-beta)
  *     - "autobuild": Appends a timestamped autobuild tag (e.g., 1.2.3+autobuild.2406101530)
+ *     - "autobuild-latest": Appends an autobuild tag with latest Tauri commit (e.g., 1.2.3+autobuild.0614.a1b2c3d)
+ *     - "deploytest": Appends a timestamped deploytest tag (e.g., 1.2.3+deploytest.2406101530)
  *
  * Examples:
  *   pnpm release-version 1.2.3
  *   pnpm release-version v1.2.3-beta
  *   pnpm release-version beta
  *   pnpm release-version autobuild
+ *   pnpm release-version autobuild-latest
+ *   pnpm release-version deploytest
  *
  * The script will:
  *   - Validate and normalize the version argument
@@ -37,9 +41,29 @@ import { execSync } from "child_process";
 function getGitShortCommit() {
   try {
     return execSync("git rev-parse --short HEAD").toString().trim();
-  } catch (e) {
+  } catch {
     console.warn("[WARN]: Failed to get git short commit, fallback to 'nogit'");
     return "nogit";
+  }
+}
+
+/**
+ * 获取最新 Tauri 相关提交的短 hash
+ * @returns {string}
+ */
+function getLatestTauriCommit() {
+  try {
+    const fullHash = execSync(
+      "bash ./scripts-workflow/get_latest_tauri_commit.bash",
+    )
+      .toString()
+      .trim();
+    return execSync(`git rev-parse --short ${fullHash}`).toString().trim();
+  } catch {
+    console.warn(
+      "[WARN]: Failed to get latest Tauri commit, fallback to current git short commit",
+    );
+    return getGitShortCommit();
   }
 }
 
@@ -135,20 +159,19 @@ async function updateCargoVersion(newVersion) {
     const versionWithoutV = newVersion.startsWith("v")
       ? newVersion.slice(1)
       : newVersion;
-    const baseVersion = getBaseVersion(versionWithoutV);
 
     const updatedLines = lines.map((line) => {
       if (line.trim().startsWith("version =")) {
         return line.replace(
           /version\s*=\s*"[^"]+"/,
-          `version = "${baseVersion}"`,
+          `version = "${versionWithoutV}"`,
         );
       }
       return line;
     });
 
     await fs.writeFile(cargoTomlPath, updatedLines.join("\n"), "utf8");
-    console.log(`[INFO]: Cargo.toml version updated to: ${baseVersion}`);
+    console.log(`[INFO]: Cargo.toml version updated to: ${versionWithoutV}`);
   } catch (error) {
     console.error("Error updating Cargo.toml version:", error);
     throw error;
@@ -168,19 +191,23 @@ async function updateTauriConfigVersion(newVersion) {
     const versionWithoutV = newVersion.startsWith("v")
       ? newVersion.slice(1)
       : newVersion;
-    const baseVersion = getBaseVersion(versionWithoutV);
 
     console.log(
       "[INFO]: Current tauri.conf.json version is: ",
       tauriConfig.version,
     );
-    tauriConfig.version = baseVersion;
+
+    // 使用完整版本信息，包含build metadata
+    tauriConfig.version = versionWithoutV;
+
     await fs.writeFile(
       tauriConfigPath,
       JSON.stringify(tauriConfig, null, 2),
       "utf8",
     );
-    console.log(`[INFO]: tauri.conf.json version updated to: ${baseVersion}`);
+    console.log(
+      `[INFO]: tauri.conf.json version updated to: ${versionWithoutV}`,
+    );
   } catch (error) {
     console.error("Error updating tauri.conf.json version:", error);
     throw error;
@@ -214,7 +241,14 @@ async function main(versionArg) {
 
   try {
     let newVersion;
-    const validTags = ["alpha", "beta", "rc", "autobuild"];
+    const validTags = [
+      "alpha",
+      "beta",
+      "rc",
+      "autobuild",
+      "autobuild-latest",
+      "deploytest",
+    ];
 
     if (validTags.includes(versionArg.toLowerCase())) {
       const currentVersion = await getCurrentVersion();
@@ -223,6 +257,13 @@ async function main(versionArg) {
       if (versionArg.toLowerCase() === "autobuild") {
         // 格式: 2.3.0+autobuild.250613.cc39b27
         newVersion = `${baseVersion}+autobuild.${generateShortTimestamp(true)}`;
+      } else if (versionArg.toLowerCase() === "autobuild-latest") {
+        // 格式: 2.3.0+autobuild.0614.a1b2c3d (使用最新 Tauri 提交)
+        const latestTauriCommit = getLatestTauriCommit();
+        newVersion = `${baseVersion}+autobuild.${generateShortTimestamp()}.${latestTauriCommit}`;
+      } else if (versionArg.toLowerCase() === "deploytest") {
+        // 格式: 2.3.0+deploytest.250613.cc39b27
+        newVersion = `${baseVersion}+deploytest.${generateShortTimestamp(true)}`;
       } else {
         newVersion = `${baseVersion}-${versionArg.toLowerCase()}`;
       }

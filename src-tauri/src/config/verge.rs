@@ -138,9 +138,6 @@ pub struct IVerge {
     /// 0: 不清理; 1: 1天；2: 7天; 3: 30天; 4: 90天
     pub auto_log_clean: Option<i32>,
 
-    /// 是否启用随机端口
-    pub enable_random_port: Option<bool>,
-
     /// verge 的各种 port 用于覆盖 clash 的各种 port
     #[cfg(not(target_os = "windows"))]
     pub verge_redir_port: Option<u16>,
@@ -240,9 +237,9 @@ impl IVerge {
     pub const VALID_CLASH_CORES: &'static [&'static str] = &["verge-mihomo", "verge-mihomo-alpha"];
 
     /// 验证并修正配置文件中的clash_core值
-    pub fn validate_and_fix_config() -> Result<()> {
+    pub async fn validate_and_fix_config() -> Result<()> {
         let config_path = dirs::verge_path()?;
-        let mut config = match help::read_yaml::<IVerge>(&config_path) {
+        let mut config = match help::read_yaml::<IVerge>(&config_path).await {
             Ok(config) => config,
             Err(_) => Self::template(),
         };
@@ -276,7 +273,7 @@ impl IVerge {
         // 修正后保存配置
         if needs_fix {
             logging!(info, Type::Config, true, "正在保存修正后的配置文件...");
-            help::save_yaml(&config_path, &config, Some("# Clash Verge Config"))?;
+            help::save_yaml(&config_path, &config, Some("# Clash Verge Config")).await?;
             logging!(
                 info,
                 Type::Config,
@@ -284,7 +281,7 @@ impl IVerge {
                 "配置文件修正完成，需要重新加载配置"
             );
 
-            Self::reload_config_after_fix(config)?;
+            Self::reload_config_after_fix(config).await?;
         } else {
             logging!(
                 info,
@@ -299,10 +296,10 @@ impl IVerge {
     }
 
     /// 配置修正后重新加载配置
-    fn reload_config_after_fix(updated_config: IVerge) -> Result<()> {
+    async fn reload_config_after_fix(updated_config: IVerge) -> Result<()> {
         use crate::config::Config;
 
-        let config_draft = Config::verge();
+        let config_draft = Config::verge().await;
         *config_draft.draft_mut() = Box::new(updated_config.clone());
         config_draft.apply();
 
@@ -338,9 +335,15 @@ impl IVerge {
         }
     }
 
-    pub fn new() -> Self {
-        match dirs::verge_path().and_then(|path| help::read_yaml::<IVerge>(&path)) {
-            Ok(config) => config,
+    pub async fn new() -> Self {
+        match dirs::verge_path() {
+            Ok(path) => match help::read_yaml::<IVerge>(&path).await {
+                Ok(config) => config,
+                Err(err) => {
+                    log::error!(target: "app", "{err}");
+                    Self::template()
+                }
+            },
             Err(err) => {
                 log::error!(target: "app", "{err}");
                 Self::template()
@@ -374,7 +377,6 @@ impl IVerge {
             proxy_auto_config: Some(false),
             pac_file_content: Some(DEFAULT_PAC.into()),
             proxy_host: Some("127.0.0.1".into()),
-            enable_random_port: Some(false),
             #[cfg(not(target_os = "windows"))]
             verge_redir_port: Some(7895),
             #[cfg(not(target_os = "windows"))]
@@ -394,7 +396,7 @@ impl IVerge {
             auto_close_connection: Some(true),
             auto_check_update: Some(true),
             enable_builtin_enhanced: Some(true),
-            auto_log_clean: Some(2),
+            auto_log_clean: Some(2), // 1: 1天, 2: 7天, 3: 30天, 4: 90天
             webdav_url: None,
             webdav_username: None,
             webdav_password: None,
@@ -412,8 +414,8 @@ impl IVerge {
     }
 
     /// Save IVerge App Config
-    pub fn save_file(&self) -> Result<()> {
-        help::save_yaml(&dirs::verge_path()?, &self, Some("# Clash Verge Config"))
+    pub async fn save_file(&self) -> Result<()> {
+        help::save_yaml(&dirs::verge_path()?, &self, Some("# Clash Verge Config")).await
     }
 
     /// patch verge config
@@ -448,7 +450,6 @@ impl IVerge {
         patch!(enable_auto_launch);
         patch!(enable_silent_start);
         patch!(enable_hover_jump_navigator);
-        patch!(enable_random_port);
         #[cfg(not(target_os = "windows"))]
         patch!(verge_redir_port);
         #[cfg(not(target_os = "windows"))]
@@ -567,7 +568,6 @@ pub struct IVergeResponse {
     pub proxy_layout_column: Option<i32>,
     pub test_list: Option<Vec<IVergeTestItem>>,
     pub auto_log_clean: Option<i32>,
-    pub enable_random_port: Option<bool>,
     #[cfg(not(target_os = "windows"))]
     pub verge_redir_port: Option<u16>,
     #[cfg(not(target_os = "windows"))]
@@ -640,7 +640,6 @@ impl From<IVerge> for IVergeResponse {
             proxy_layout_column: verge.proxy_layout_column,
             test_list: verge.test_list,
             auto_log_clean: verge.auto_log_clean,
-            enable_random_port: verge.enable_random_port,
             #[cfg(not(target_os = "windows"))]
             verge_redir_port: verge.verge_redir_port,
             #[cfg(not(target_os = "windows"))]
