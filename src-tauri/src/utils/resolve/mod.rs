@@ -1,12 +1,13 @@
+use anyhow::Result;
 use tauri::AppHandle;
 
 use crate::{
     config::Config,
-    core::{handle, hotkey::Hotkey, sysopt, tray::Tray, CoreManager, Timer},
+    core::{CoreManager, Timer, handle, hotkey::Hotkey, sysopt, tray::Tray},
     logging, logging_error,
     module::lightweight::auto_lightweight_mode_init,
     process::AsyncHandler,
-    utils::{init, logging::Type, network::NetworkManager, resolve::window::create_window, server},
+    utils::{init, logging::Type, resolve::window::create_window, server},
 };
 
 pub mod dns;
@@ -15,11 +16,15 @@ pub mod ui;
 pub mod window;
 pub mod window_script;
 
-pub fn resolve_setup_sync(app_handle: AppHandle) {
+pub fn resolve_setup_handle(app_handle: AppHandle) {
     init_handle(app_handle);
-    init_scheme();
-    init_embed_server();
-    NetworkManager::new().init();
+}
+
+pub fn resolve_setup_sync() {
+    AsyncHandler::spawn(|| async {
+        AsyncHandler::spawn_blocking(init_scheme);
+        AsyncHandler::spawn_blocking(init_embed_server);
+    });
 }
 
 pub fn resolve_setup_async() {
@@ -33,26 +38,29 @@ pub fn resolve_setup_async() {
     );
 
     AsyncHandler::spawn(|| async {
-        init_resources().await;
-        init_work_config().await;
-        init_startup_script().await;
+        futures::join!(
+            init_work_config(),
+            init_resources(),
+            init_startup_script(),
+            init_hotkey(),
+        );
 
         init_timer().await;
-        init_hotkey().await;
         init_auto_lightweight_mode().await;
 
         init_verge_config().await;
         init_core_manager().await;
-        init_system_proxy().await;
 
-        // 在单独的 spawn 中运行 sync 函数，避免 Send 问题
+        init_system_proxy().await;
         AsyncHandler::spawn_blocking(|| {
             init_system_proxy_guard();
         });
 
-        init_window().await;
-        init_tray().await;
-        refresh_tray_menu().await
+        let tray_and_refresh = async {
+            init_tray().await;
+            refresh_tray_menu().await;
+        };
+        futures::join!(init_window(), tray_and_refresh,);
     });
 
     let elapsed = start_time.elapsed();
@@ -104,6 +112,18 @@ pub fn init_handle(app_handle: AppHandle) {
 pub(super) fn init_scheme() {
     logging!(info, Type::Setup, true, "Initializing custom URL scheme");
     logging_error!(Type::Setup, true, init::init_scheme());
+}
+
+pub async fn resolve_scheme(param: String) -> Result<()> {
+    logging!(
+        info,
+        Type::Setup,
+        true,
+        "Resolving scheme for param: {}",
+        param
+    );
+    logging_error!(Type::Setup, true, scheme::resolve_scheme(param).await);
+    Ok(())
 }
 
 pub(super) fn init_embed_server() {

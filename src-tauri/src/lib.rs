@@ -17,20 +17,16 @@ use crate::{
     core::handle,
     core::hotkey,
     process::AsyncHandler,
-    utils::{
-        resolve::{self, scheme::resolve_scheme},
-        server,
-    },
+    utils::{resolve, server},
 };
 use config::Config;
-use parking_lot::Mutex;
 use tauri::AppHandle;
 #[cfg(target_os = "macos")]
 use tauri::Manager;
 #[cfg(target_os = "macos")]
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_deep_link::DeepLinkExt;
-use tokio::time::{timeout, Duration};
+use tokio::time::{Duration, timeout};
 use utils::logging::Type;
 
 /// Application initialization helper functions
@@ -39,7 +35,7 @@ mod app_init {
 
     /// Initialize singleton monitoring for other instances
     pub fn init_singleton_check() {
-        AsyncHandler::spawn(move || async move {
+        AsyncHandler::spawn_blocking(move || async move {
             logging!(info, Type::Setup, true, "开始检查单例实例...");
             match timeout(Duration::from_millis(500), server::check_singleton()).await {
                 Ok(result) => {
@@ -84,8 +80,7 @@ mod app_init {
         {
             builder = builder.plugin(tauri_plugin_devtools::init());
         }
-
-        builder.manage(Mutex::new(state::lightweight::LightWeightState::default()))
+        builder
     }
 
     /// Setup deep link handling
@@ -99,8 +94,8 @@ mod app_init {
         app.deep_link().on_open_url(|event| {
             let url = event.urls().first().map(|u| u.to_string());
             if let Some(url) = url {
-                tokio::task::spawn_local(async move {
-                    if let Err(e) = resolve_scheme(url).await {
+                AsyncHandler::spawn(|| async {
+                    if let Err(e) = resolve::resolve_scheme(url).await {
                         logging!(error, Type::Setup, true, "Failed to resolve scheme: {}", e);
                     }
                 });
@@ -139,8 +134,8 @@ mod app_init {
     }
 
     /// Generate all command handlers for the application
-    pub fn generate_handlers(
-    ) -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static {
+    pub fn generate_handlers()
+    -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static {
         tauri::generate_handler![
             // Common commands
             cmd::get_sys_proxy,
@@ -188,6 +183,8 @@ mod app_init {
             cmd::get_proxies,
             cmd::force_refresh_proxies,
             cmd::get_providers_proxies,
+            cmd::sync_tray_proxy_selection,
+            cmd::update_proxy_and_sync,
             cmd::save_dns_config,
             cmd::apply_dns_config,
             cmd::check_dns_config_exists,
@@ -278,22 +275,25 @@ pub fn run() {
     // Set Linux environment variable
     #[cfg(target_os = "linux")]
     {
-        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        unsafe {
+            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        }
 
         let desktop_env = std::env::var("XDG_CURRENT_DESKTOP")
             .unwrap_or_default()
             .to_uppercase();
-        let session_env = std::env::var("XDG_SESSION_TYPE").unwrap_or_default();
         let is_kde_desktop = desktop_env.contains("KDE");
-        let is_wayland_session = session_env.contains("wayland");
+        let is_plasma_desktop = desktop_env.contains("PLASMA");
 
-        if is_kde_desktop && is_wayland_session {
-            std::env::set_var("GDK_BACKEND", "x11");
+        if is_kde_desktop || is_plasma_desktop {
+            unsafe {
+                std::env::set_var("GTK_CSD", "0");
+            }
             logging!(
                 info,
                 Type::Setup,
                 true,
-                "KDE Wayland detected: Switched to X11 backend for better titlebar stability."
+                "KDE detected: Disabled GTK CSD for better titlebar stability."
             );
         }
     }
@@ -334,9 +334,9 @@ pub fn run() {
 
             logging!(info, Type::Setup, true, "执行主要设置操作...");
 
-            logging!(info, Type::Setup, true, "异步执行应用设置...");
-            resolve::resolve_setup_sync(app_handle);
+            resolve::resolve_setup_handle(app_handle);
             resolve::resolve_setup_async();
+            resolve::resolve_setup_sync();
 
             logging!(info, Type::Setup, true, "初始化完成，继续执行");
             Ok(())
@@ -365,7 +365,7 @@ pub fn run() {
 
         /// Handle application reopen events (macOS)
         #[cfg(target_os = "macos")]
-        pub fn handle_reopen(app_handle: &AppHandle, has_visible_windows: bool) {
+        pub async fn handle_reopen(app_handle: &AppHandle, has_visible_windows: bool) {
             logging!(
                 info,
                 Type::System,
@@ -382,7 +382,7 @@ pub fn run() {
 
                 logging!(info, Type::System, true, "没有可见窗口，尝试显示主窗口");
 
-                let result = WindowManager::show_main_window();
+                let result = WindowManager::show_main_window().await;
                 logging!(
                     info,
                     Type::System,
@@ -442,10 +442,10 @@ pub fn run() {
                         }
                     }
 
-                    if !is_enable_global_hotkey {
-                        if let Err(e) = hotkey::Hotkey::global().init().await {
-                            logging!(error, Type::Hotkey, true, "Failed to init hotkeys: {}", e);
-                        }
+                    if !is_enable_global_hotkey
+                        && let Err(e) = hotkey::Hotkey::global().init().await
+                    {
+                        logging!(error, Type::Hotkey, true, "Failed to init hotkeys: {}", e);
                     }
                     return;
                 }
@@ -478,10 +478,8 @@ pub fn run() {
                     }
                 }
 
-                if !is_enable_global_hotkey {
-                    if let Err(e) = hotkey::Hotkey::global().reset() {
-                        logging!(error, Type::Hotkey, true, "Failed to reset hotkeys: {}", e);
-                    }
+                if !is_enable_global_hotkey && let Err(e) = hotkey::Hotkey::global().reset() {
+                    logging!(error, Type::Hotkey, true, "Failed to reset hotkeys: {}", e);
                 }
             });
         }
@@ -541,7 +539,10 @@ pub fn run() {
                 has_visible_windows,
                 ..
             } => {
-                event_handlers::handle_reopen(app_handle, has_visible_windows);
+                let app_handle = app_handle.clone();
+                AsyncHandler::spawn(move || async move {
+                    event_handlers::handle_reopen(&app_handle, has_visible_windows).await;
+                });
             }
             tauri::RunEvent::ExitRequested { api, code, .. } => {
                 if code.is_none() {
